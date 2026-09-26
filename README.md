@@ -37,6 +37,16 @@ python3 app.py --db ./data.db --port 8303
 
 请求身份通过`X-User-Id`和`X-Role`请求头传入。创建和动作的可执行角色由规则引擎控制。
 
+## 检验结果纠错路径
+
+检验结果录错时病例往往已经确认。纠错流程为：
+
+1. 检验人员（`lab`/`admin`）对`confirmed`病例提交`correct_lab_result`，必填`correction_id`（更正单号）、`reason`（更正依据）、`new_conclusion`（新结论）、`lab_id`（复检单号）。病例回到`investigating`，更正记录挂在病例`data.corrections`下（状态`pending`，内含原确认信息快照`prior`）。
+2. 原先的确认记录保留：审计时间线只追加不修改；接触者与病例的关联关系完全不动。
+3. 等待结论期间，关联接触者无法`complete_followup`，服务端返回`409 WorkflowBlocked`并指明卡在“完成随访/观察完成”这一步；演示页面同样标注阻塞步骤。
+4. 检验人员对同一病例重新下结论（`lab_positive`或`mark_probable`）后继续使用原病例，更正记录变为`resolved`，接触者观察随即可以完成。
+5. 同一份更正按`correction_id`幂等：重复提交直接返回当前病例，不产生新版本或新审计记录（结论恢复后的迟到重发也不会再次打开病例）。
+
 ## 测试
 
 ```bash

@@ -11,6 +11,7 @@ from .domain import (
     NotFoundError,
     PermissionDenied,
     ValidationError,
+    WorkflowBlocked,
     Actor,
 )
 
@@ -63,7 +64,7 @@ def create_handler(service, rules, static_dir):
                 status = 403
             elif isinstance(exc, NotFoundError):
                 status = 404
-            elif isinstance(exc, (ConflictError, InvalidTransition)):
+            elif isinstance(exc, (ConflictError, InvalidTransition, WorkflowBlocked)):
                 status = 409
             elif isinstance(exc, ValidationError):
                 status = 400

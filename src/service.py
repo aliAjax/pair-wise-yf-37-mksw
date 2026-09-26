@@ -41,9 +41,16 @@ class DomainService:
         entity = self.repository.get_entity(entity_id)
         if not entity:
             raise NotFoundError("entity not found: " + entity_id)
+        payload = dict(data or {})
+        # The same correction document may be resubmitted (retries, network
+        # duplicates). It must be processed exactly once: return the case in
+        # its current state without writing another version or audit entry.
+        if action == "correct_lab_result" and payload.get("correction_id"):
+            if self.rules.find_correction(entity, payload["correction_id"]):
+                return entity
         expected = int(expected_version) if expected_version is not None else entity["version"]
         next_status, patch = self.rules.validate_transition(
-            actor, entity, action, dict(data or {}), self._lookup
+            actor, entity, action, payload, self._lookup
         )
         merged = dict(entity["data"])
         merged.update(patch)

@@ -5,30 +5,263 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>传染病暴发调查与接触网络</title>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 2rem; color: #1f2937; }
-    main { max-width: 820px; margin: auto; }
-    pre { background: #f3f4f6; padding: 1rem; border-radius: 8px; overflow-x: auto; }
-    button { padding: .5rem .8rem; cursor: pointer; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 1.5rem; color: #1f2937; background: #f9fafb; }
+    main { max-width: 900px; margin: auto; }
+    h1 { font-size: 1.3rem; }
+    h2 { font-size: 1.05rem; margin-top: 1.6rem; }
+    .toolbar { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; margin-bottom: .8rem; }
+    select, input, textarea, button { font: inherit; padding: .35rem .55rem; border: 1px solid #d1d5db; border-radius: 6px; background: #fff; }
+    textarea { width: 100%; box-sizing: border-box; }
+    button { cursor: pointer; }
+    button.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+    button.warn { background: #b45309; color: #fff; border-color: #b45309; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: .9rem 1rem; margin-bottom: .8rem; }
+    .card h3 { margin: 0 0 .2rem; font-size: .98rem; }
+    .meta { color: #6b7280; font-size: .8rem; margin-bottom: .5rem; word-break: break-all; }
+    .badge { display: inline-block; padding: .1rem .55rem; border-radius: 999px; font-size: .75rem; background: #e5e7eb; }
+    .badge.investigating { background: #fef3c7; color: #92400e; }
+    .badge.confirmed, .badge.following { background: #fee2e2; color: #991b1b; }
+    .badge.recovered, .badge.completed { background: #d1fae5; color: #065f46; }
+    .badge.probable { background: #ffedd5; color: #9a3412; }
+    .steps { display: flex; align-items: center; flex-wrap: wrap; gap: .25rem; margin: .55rem 0; }
+    .step { font-size: .78rem; padding: .18rem .5rem; border-radius: 6px; background: #f3f4f6; color: #9ca3af; border: 1px solid #e5e7eb; }
+    .step.done { background: #dbeafe; color: #1e40af; border-color: #bfdbfe; }
+    .step.current { background: #2563eb; color: #fff; border-color: #2563eb; font-weight: 600; }
+    .step.locked { background: #fef3c7; color: #92400e; border-color: #fcd34d; }
+    .arrow { color: #9ca3af; font-size: .75rem; }
+    .notice { margin-top: .55rem; padding: .55rem .7rem; border-radius: 8px; font-size: .83rem; }
+    .notice.blocked { background: #fffbeb; border: 1px solid #fcd34d; color: #92400e; }
+    .notice.error { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; white-space: pre-wrap; }
+    .notice.ok { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
+    .row { display: flex; gap: .4rem; flex-wrap: wrap; margin-top: .5rem; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; margin-top: .5rem; }
+    .form-grid label { font-size: .78rem; color: #4b5563; display: flex; flex-direction: column; gap: .2rem; }
+    .form-grid .full { grid-column: 1 / -1; }
+    pre { background: #f3f4f6; padding: .8rem; border-radius: 8px; overflow-x: auto; font-size: .75rem; }
   </style>
 </head>
 <body>
 <main>
   <h1>传染病暴发调查与接触网络</h1>
-  <p>这是最小演示页面。使用浏览器或 curl 调用 JSON API。</p>
-  <p><button onclick="checkHealth()">检查服务状态</button></p>
-  <pre id="result">等待操作</pre>
-  <h2>常用接口</h2>
-  <pre>GET  /health
-GET  /api/&lt;kind&gt;
-POST /api/&lt;kind&gt;
-GET  /api/entities/&lt;id&gt;
-POST /api/entities/&lt;id&gt;/actions</pre>
+  <div class="toolbar">
+    <label>当前角色
+      <select id="role">
+        <option value="admin">admin（管理员）</option>
+        <option value="clinician">clinician（临床医生）</option>
+        <option value="investigator">investigator（调查员）</option>
+        <option value="lab" selected>lab（检验人员）</option>
+        <option value="viewer">viewer（只读）</option>
+      </select>
+    </label>
+    <button class="primary" onclick="loadAll()">刷新</button>
+    <span id="globalMsg"></span>
+  </div>
+
+  <h2>病例</h2>
+  <div class="card">
+    <h3>新建病例</h3>
+    <div class="form-grid">
+      <label>person_id <input id="nc_person" value="P-100"></label>
+      <label>发病日期 <input id="nc_onset" value="2026-09-20"></label>
+      <label>地点 <input id="nc_location" value="District-A"></label>
+      <label>症状 <input id="nc_symptoms" value="fever,cough"></label>
+    </div>
+    <div class="row"><button class="primary" onclick="createCase()">创建病例（reported）</button></div>
+  </div>
+  <div id="cases"></div>
+
+  <h2>接触者</h2>
+  <div class="card">
+    <h3>新建接触者</h3>
+    <div class="form-grid">
+      <label>病例 ID <input id="nct_case" placeholder="选择上方病例后自动填入"></label>
+      <label>person_id <input id="nct_person" value="P-200"></label>
+      <label>暴露开始 <input id="nct_exposure" value="2026-09-18"></label>
+    </div>
+    <div class="row"><button class="primary" onclick="createContact()">创建接触者（identified）</button></div>
+  </div>
+  <div id="contacts"></div>
+
+  <h2>接口</h2>
+  <pre>GET  /api/cases · GET /api/contacts
+GET  /api/entities/&lt;id&gt; · GET /api/audit
+POST /api/cases · POST /api/contacts
+POST /api/entities/&lt;id&gt;/actions  {"action": "...", "data": {...}, "expected_version": n}
+动作: triage / lab_positive / mark_probable / correct_lab_result / recover / close
+      begin_followup / complete_followup</pre>
 </main>
 <script>
-async function checkHealth() {
-  const response = await fetch('/health');
-  document.getElementById('result').textContent = JSON.stringify(await response.json(), null, 2);
+const CASE_STEPS = ["reported", "investigating", "confirmed", "recovered", "closed"];
+const CONTACT_STEPS = ["identified", "following", "completed"];
+const LABELS = {
+  reported: "已报告", investigating: "调查中", confirmed: "确诊",
+  probable: "疑似", recovered: "恢复", closed: "结案",
+  identified: "已识别", following: "随访中", completed: "观察完成"
+};
+let state = { cases: [], contacts: [] };
+
+function role() { return document.getElementById("role").value; }
+function esc(v) { return String(v ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function pendingCorrection(item) {
+  return (item.data.corrections || []).find(c => c.status === "pending");
 }
+function stepHtml(steps, current, lockedAfter) {
+  return '<div class="steps">' + steps.map((s, i) => {
+    let cls = "step";
+    const idx = steps.indexOf(current);
+    if (s === current) cls += " current";
+    else if (idx >= 0 && i < idx) cls += " done";
+    if (lockedAfter && i === steps.length - 1) cls = "step locked";
+    const arrow = i < steps.length - 1 ? '<span class="arrow">→</span>' : "";
+    return `<span class="${cls}" title="${s}">${LABELS[s] || s}</span>${arrow}`;
+  }).join("") + "</div>";
+}
+
+async function api(path, options) {
+  const res = await fetch(path, Object.assign({
+    headers: { "Content-Type": "application/json", "X-Role": role(), "X-User-Id": "demo-" + role() }
+  }, options));
+  const body = await res.json();
+  if (!res.ok) throw Object.assign(new Error(body.error || "请求失败"), { type: body.type });
+  return body;
+}
+function flash(text, ok) {
+  const el = document.getElementById("globalMsg");
+  el.innerHTML = text ? `<span class="notice ${ok ? "ok" : "error"}" style="display:inline-block">${esc(text)}</span>` : "";
+  if (text) setTimeout(() => { el.innerHTML = ""; }, 8000);
+}
+
+async function loadAll() {
+  try {
+    const [cases, contacts] = await Promise.all([api("/api/cases"), api("/api/contacts")]);
+    state.cases = cases.items;
+    state.contacts = contacts.items;
+    renderCases();
+    renderContacts();
+  } catch (e) { flash(e.message); }
+}
+
+function renderCases() {
+  document.getElementById("cases").innerHTML = state.cases.map(c => {
+    const pending = pendingCorrection(c);
+    const steps = stepHtml(CASE_STEPS, c.status);
+    let actions = "";
+    if (c.status === "reported") actions = `<button onclick="act('${c.id}','triage',{clinician:'demo-'+role()})">分诊 → 调查中</button>`;
+    if (c.status === "investigating") actions =
+      `<button class="primary" onclick="labPositive('${c.id}')">检验阳性 → 确诊</button>
+       <button onclick="act('${c.id}','mark_probable',{epi_link:prompt('流行病学关联：','与确诊病例同住')})">标记疑似</button>`;
+    if (c.status === "confirmed") actions =
+      `<button class="warn" onclick="showCorrection('${c.id}')">检验结果更正</button>
+       <button onclick="act('${c.id}','recover',{recovered_at:prompt('恢复日期：',new Date().toISOString().slice(0,10))})">恢复</button>`;
+    if (c.status === "probable") actions = `<button onclick="act('${c.id}','recover',{recovered_at:new Date().toISOString().slice(0,10)})">恢复</button>`;
+    if (c.status === "recovered") actions = `<button onclick="act('${c.id}','close',{outcome:prompt('转归：','recovered')})">结案</button>`;
+    const correctionForm = `<div id="corr-${c.id}" style="display:none" class="form-grid">
+        <label>更正单号 <input id="corr_id_${c.id}" value="CORR-${c.id.slice(0,4)}-1"></label>
+        <label>检验单编号 <input id="corr_lab_${c.id}" value="L-2"></label>
+        <label class="full">更正依据 <textarea id="corr_reason_${c.id}" rows="2">原样本污染，复检结果为阴性</textarea></label>
+        <label class="full">新结论 <textarea id="corr_new_${c.id}" rows="2">negative（复核未检出，等待进一步结论）</textarea></label>
+      </div>
+      <div class="row" id="corr_btn_${c.id}" style="display:none">
+        <button class="warn" onclick="submitCorrection('${c.id}')">提交更正（病例回到调查中）</button>
+        <button onclick="hideCorrection('${c.id}')">取消</button>
+      </div>`;
+    const notice = pending ? `<div class="notice blocked">⏳ <b>检验结果更正中</b>（单号 ${esc(pending.correction_id)}）：病例已回到“调查中”，等待检验人员重新下结论。<br>
+      在此期间，关联接触者<b>无法完成医学观察——卡在“完成随访”这一步</b>；原先的确认记录与接触关系均保留。结论恢复后继续使用本原病例。</div>` : "";
+    return `<div class="card">
+      <h3>病例 ${esc(c.data.person_id)} <span class="badge ${c.status}">${LABELS[c.status] || esc(c.status)}</span></h3>
+      <div class="meta">id: ${esc(c.id)} · version ${c.version} · 发病 ${esc(c.data.onset_date)} · ${esc(c.data.location)}</div>
+      ${steps}${notice}
+      <div class="row">${actions}</div>${correctionForm}
+    </div>`;
+  }).join("") || '<p class="meta">暂无病例</p>';
+}
+
+function renderContacts() {
+  const caseMap = Object.fromEntries(state.cases.map(c => [c.id, c]));
+  document.getElementById("contacts").innerHTML = state.contacts.map(ct => {
+    const linked = caseMap[ct.data.case_id];
+    const pending = linked && pendingCorrection(linked);
+    const locked = ct.status === "following" && pending;
+    const steps = stepHtml(CONTACT_STEPS, ct.status, locked);
+    let actions = "";
+    if (ct.status === "identified") actions =
+      `<button onclick="actContact('${ct.id}','begin_followup',{followup_start:'2026-09-21',due_at:'2026-10-05'})">开始随访</button>`;
+    if (ct.status === "following") actions =
+      `<button ${locked ? "disabled" : ""} title="${locked ? "关联病例等待更正结论中" : ""}"
+        onclick="actContact('${ct.id}','complete_followup',{outcome:prompt('观察结果：','no symptoms')})">完成医学观察</button>`;
+    const notice = pending ? `<div class="notice blocked">🔒 关联病例 ${esc(linked.data.person_id)}（${esc(linked.id)}）检验结论更正中：
+      医学观察流程卡在 <b>“完成随访 / 观察完成”</b> 这一步，须等病例重新下结论后方可继续；接触关系保留，无需重建。</div>` : "";
+    return `<div class="card">
+      <h3>接触者 ${esc(ct.data.person_id)} <span class="badge ${ct.status}">${LABELS[ct.status] || esc(ct.status)}</span></h3>
+      <div class="meta">id: ${esc(ct.id)} · 关联病例: ${esc(ct.data.case_id)} · 暴露起 ${esc(ct.data.exposure_start)}</div>
+      ${steps}${notice}
+      <div class="row">${actions}</div>
+    </div>`;
+  }).join("") || '<p class="meta">暂无接触者</p>';
+}
+
+async function createCase() {
+  const data = {
+    person_id: document.getElementById("nc_person").value,
+    onset_date: document.getElementById("nc_onset").value,
+    location: document.getElementById("nc_location").value,
+    symptoms: document.getElementById("nc_symptoms").value.split(",").map(s => s.trim()).filter(Boolean),
+  };
+  try { const c = await api("/api/cases", { method: "POST", body: JSON.stringify(data) });
+    document.getElementById("nct_case").value = c.id; await loadAll(); flash("病例已创建", true);
+  } catch (e) { flash(e.message); }
+}
+async function createContact() {
+  const data = {
+    case_id: document.getElementById("nct_case").value,
+    person_id: document.getElementById("nct_person").value,
+    exposure_start: document.getElementById("nct_exposure").value,
+  };
+  try { await api("/api/contacts", { method: "POST", body: JSON.stringify(data) }); await loadAll(); flash("接触者已创建", true); }
+  catch (e) { flash(e.message); }
+}
+async function act(id, action, data) {
+  if (Object.values(data).some(v => v == null || v === "")) return;
+  const current = state.cases.find(c => c.id === id);
+  try { await api(`/api/entities/${id}/actions`, { method: "POST", body: JSON.stringify({ action, data, expected_version: current.version }) });
+    await loadAll(); flash(`${action} 成功`, true);
+  } catch (e) { flash(`${action} 被拒绝（${e.type}）：\n${e.message}`); }
+}
+async function actContact(id, action, data) {
+  const current = state.contacts.find(c => c.id === id);
+  try { await api(`/api/entities/${id}/actions`, { method: "POST", body: JSON.stringify({ action, data, expected_version: current.version }) });
+    await loadAll(); flash(`${action} 成功`, true);
+  } catch (e) { flash(`${action} 被拒绝（${e.type}）：\n${e.message}`); }
+}
+function labPositive(id) {
+  const labId = prompt("检验单编号：", "L-1");
+  if (labId == null) return;
+  act(id, "lab_positive", { lab_id: labId, result: "positive" });
+}
+function showCorrection(id) {
+  document.getElementById("corr-" + id).style.display = "grid";
+  document.getElementById("corr_btn_" + id).style.display = "flex";
+}
+function hideCorrection(id) {
+  document.getElementById("corr-" + id).style.display = "none";
+  document.getElementById("corr_btn_" + id).style.display = "none";
+}
+async function submitCorrection(id) {
+  const data = {
+    correction_id: document.getElementById("corr_id_" + id).value,
+    lab_id: document.getElementById("corr_lab_" + id).value,
+    reason: document.getElementById("corr_reason_" + id).value,
+    new_conclusion: document.getElementById("corr_new_" + id).value,
+  };
+  const current = state.cases.find(c => c.id === id);
+  try {
+    await api(`/api/entities/${id}/actions`, { method: "POST",
+      body: JSON.stringify({ action: "correct_lab_result", data, expected_version: current.version }) });
+    await loadAll(); flash("更正已受理：病例回到调查中，原记录保留", true);
+  } catch (e) { flash(`更正被拒绝（${e.type}）：\n${e.message}`); }
+}
+loadAll();
 </script>
 </body>
 </html>

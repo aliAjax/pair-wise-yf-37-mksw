@@ -27,6 +27,10 @@ class InvalidTransition(DomainError):
     """The requested state transition is not valid."""
 
 
+class WorkflowBlocked(DomainError):
+    """Action is blocked by another object the workflow depends on."""
+
+
 class Role(str, Enum):
     viewer = "viewer"
     admin = "admin"
