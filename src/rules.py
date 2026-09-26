@@ -21,15 +21,59 @@ def _validate_case(actor, data, lookup):
         raise ValidationError("symptoms are required")
 
 
+def _resolve_pending_correction(actor, entity, resolution):
+    correction = (entity.get("data") or {}).get("correction") or {}
+    if correction.get("status") != "pending":
+        return {}
+    resolved = dict(correction)
+    resolved["status"] = "resolved"
+    resolved["resolved_by"] = actor.user_id
+    resolved["resolution"] = resolution
+    return {"correction": resolved}
+
+
 def _validate_lab_positive(actor, entity, data, lookup):
     if data.get("result", "").lower() not in ("positive", "detected"):
         raise ValidationError("lab result must be positive or detected")
-    return {"confirmed_by": actor.user_id}
+    extra = {"confirmed_by": actor.user_id}
+    extra.update(_resolve_pending_correction(actor, entity, "confirmed"))
+    return extra
 
 
 def _validate_probable(actor, entity, data, lookup):
     if not data.get("epi_link"):
         raise ValidationError("probable case requires an epidemiological link")
+    return _resolve_pending_correction(actor, entity, "probable")
+
+
+def _validate_lab_correction(actor, entity, data, lookup):
+    correction = {
+        "correction_id": data["correction_id"],
+        "reason": data["reason"],
+        "corrected_result": data["corrected_result"],
+        "status": "pending",
+        "submitted_by": actor.user_id,
+        "previous_confirmation": {
+            "result": entity["data"].get("result"),
+            "lab_id": entity["data"].get("lab_id"),
+            "confirmed_by": entity["data"].get("confirmed_by"),
+        },
+    }
+    return {"correction": correction}
+
+
+def _validate_complete_followup(actor, entity, data, lookup):
+    case = _find_one(lookup, "case", "id", entity["data"].get("case_id"))
+    if not case:
+        return None
+    correction = (case.get("data") or {}).get("correction") or {}
+    if correction.get("status") == "pending":
+        raise ConflictError(
+            "contact %s 卡在 complete_followup：病例 %s 的检验更正 %s 尚未出结论"
+            "（病例已回到 investigating，待 lab_positive 或 mark_probable 后才能完成医学观察）"
+            % (entity["id"], case["id"], correction.get("correction_id"))
+        )
+    return None
 
 
 def cluster_cases(cases, max_days=14):
@@ -49,17 +93,18 @@ def cluster_cases(cases, max_days=14):
 
 
 CUSTOM_CREATE = {'case': _validate_case}
-CUSTOM_TRANSITIONS = {('case', 'lab_positive'): _validate_lab_positive, ('case', 'mark_probable'): _validate_probable}
+CUSTOM_TRANSITIONS = {('case', 'lab_positive'): _validate_lab_positive, ('case', 'mark_probable'): _validate_probable, ('case', 'correct_lab_result'): _validate_lab_correction, ('contact', 'complete_followup'): _validate_complete_followup}
 
 
 class RuleEngine:
     ALIASES = {'cases': 'case', 'contacts': 'contact'}
     INITIAL_STATUS = {'case': 'reported', 'contact': 'identified'}
-    TRANSITIONS = {'case': {'triage': (('reported',), 'investigating'), 'lab_positive': (('investigating',), 'confirmed'), 'mark_probable': (('investigating',), 'probable'), 'recover': (('confirmed', 'probable'), 'recovered'), 'close': (('recovered',), 'closed')}, 'contact': {'begin_followup': (('identified',), 'following'), 'complete_followup': (('following',), 'completed')}}
+    TRANSITIONS = {'case': {'triage': (('reported',), 'investigating'), 'lab_positive': (('investigating',), 'confirmed'), 'mark_probable': (('investigating',), 'probable'), 'correct_lab_result': (('confirmed',), 'investigating'), 'recover': (('confirmed', 'probable'), 'recovered'), 'close': (('recovered',), 'closed')}, 'contact': {'begin_followup': (('identified',), 'following'), 'complete_followup': (('following',), 'completed')}}
     CREATE_REQUIRED = {'case': ('person_id', 'onset_date', 'location', 'symptoms'), 'contact': ('case_id', 'person_id', 'exposure_start')}
-    ACTION_REQUIRED = {('case', 'triage'): ('clinician',), ('case', 'lab_positive'): ('lab_id', 'result'), ('case', 'mark_probable'): ('epi_link',), ('case', 'recover'): ('recovered_at',), ('case', 'close'): ('outcome',), ('contact', 'begin_followup'): ('followup_start', 'due_at'), ('contact', 'complete_followup'): ('outcome',)}
+    ACTION_REQUIRED = {('case', 'triage'): ('clinician',), ('case', 'lab_positive'): ('lab_id', 'result'), ('case', 'mark_probable'): ('epi_link',), ('case', 'correct_lab_result'): ('correction_id', 'reason', 'corrected_result'), ('case', 'recover'): ('recovered_at',), ('case', 'close'): ('outcome',), ('contact', 'begin_followup'): ('followup_start', 'due_at'), ('contact', 'complete_followup'): ('outcome',)}
     CREATE_ROLES = {'case': ('admin', 'clinician'), 'contact': ('admin', 'investigator')}
-    ROLE_ACTIONS = {'triage': ('admin', 'clinician'), 'lab_positive': ('admin', 'lab'), 'mark_probable': ('admin', 'investigator'), 'recover': ('admin', 'clinician'), 'close': ('admin', 'investigator'), 'begin_followup': ('admin', 'investigator'), 'complete_followup': ('admin', 'investigator')}
+    ROLE_ACTIONS = {'triage': ('admin', 'clinician'), 'lab_positive': ('admin', 'lab'), 'mark_probable': ('admin', 'investigator'), 'correct_lab_result': ('admin', 'lab'), 'recover': ('admin', 'clinician'), 'close': ('admin', 'investigator'), 'begin_followup': ('admin', 'investigator'), 'complete_followup': ('admin', 'investigator')}
+    IDEMPOTENT_ACTIONS = {('case', 'correct_lab_result'): ('correction', 'correction_id')}
 
     def normalize_kind(self, kind):
         return self.ALIASES.get(kind, kind)
@@ -69,6 +114,15 @@ class RuleEngine:
         if kind not in self.INITIAL_STATUS:
             raise ValidationError("unknown kind: " + str(kind))
         return self.INITIAL_STATUS[kind]
+
+    def already_applied(self, entity, action, data):
+        spec = self.IDEMPOTENT_ACTIONS.get((self.normalize_kind(entity["kind"]), action))
+        if not spec:
+            return False
+        record_field, key_field = spec
+        record = (entity.get("data") or {}).get(record_field) or {}
+        key = data.get(key_field)
+        return bool(key) and record.get(key_field) == key
 
     @staticmethod
     def _ensure_role(actor, allowed):

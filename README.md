@@ -37,6 +37,15 @@ python3 app.py --db ./data.db --port 8303
 
 请求身份通过`X-User-Id`和`X-Role`请求头传入。创建和动作的可执行角色由规则引擎控制。
 
+## 检验更正
+
+检验结果录错且病例已确诊时，检验人员（`lab`角色）可对`confirmed`病例提交`correct_lab_result`动作，请求数据需包含`correction_id`（更正单号）、`reason`（更正依据）和`corrected_result`（新结论）：
+
+- 病例回到`investigating`，原确认数据与审计记录、接触者的关联关系全部保留，更正前的确认信息快照存入`data.correction.previous_confirmation`。
+- 更正待结论期间，关联接触者的`complete_followup`会被拒绝（HTTP 409），错误信息说明卡在哪一步、等待哪个病例的哪份更正。
+- 病例经`lab_positive`或`mark_probable`恢复结论后仍在原病例上继续，更正记录标记为`resolved`，接触者随即可以完成医学观察。
+- 同一`correction_id`重复提交只处理一次：重复请求直接返回当前病例，不产生新版本和重复审计。
+
 ## 测试
 
 ```bash

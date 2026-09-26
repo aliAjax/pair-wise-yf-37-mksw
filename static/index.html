@@ -16,6 +16,24 @@
   <h1>传染病暴发调查与接触网络</h1>
   <p>这是最小演示页面。使用浏览器或 curl 调用 JSON API。</p>
   <p><button onclick="checkHealth()">检查服务状态</button></p>
+
+  <h2>检验更正</h2>
+  <p>检验结果录错时，由检验人员（lab 角色）写明更正依据和新结论；病例回到“调查中”，原确认记录与接触关系保留。同一更正单号重复提交只处理一次。</p>
+  <p>
+    <input id="corrCase" placeholder="病例 ID">
+    <input id="corrId" placeholder="更正单号">
+    <input id="corrReason" placeholder="更正依据">
+    <input id="corrResult" placeholder="新结论">
+    <button onclick="submitCorrection()">提交更正</button>
+  </p>
+
+  <h2>完成医学观察</h2>
+  <p>若病例的检验更正尚未出结论，接触者无法完成医学观察，下方结果会说明卡在哪一步。</p>
+  <p>
+    <input id="followupContact" placeholder="接触者 ID">
+    <button onclick="completeFollowup()">完成医学观察</button>
+  </p>
+
   <pre id="result">等待操作</pre>
   <h2>常用接口</h2>
   <pre>GET  /health
@@ -25,9 +43,39 @@ GET  /api/entities/&lt;id&gt;
 POST /api/entities/&lt;id&gt;/actions</pre>
 </main>
 <script>
+function show(value) {
+  document.getElementById('result').textContent = JSON.stringify(value, null, 2);
+}
+
+async function postAction(id, payload, role) {
+  const response = await fetch('/api/entities/' + encodeURIComponent(id) + '/actions', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'X-User-Id': 'demo-' + role, 'X-Role': role},
+    body: JSON.stringify(payload),
+  });
+  return {status: response.status, body: await response.json()};
+}
+
 async function checkHealth() {
   const response = await fetch('/health');
-  document.getElementById('result').textContent = JSON.stringify(await response.json(), null, 2);
+  show(await response.json());
+}
+
+async function submitCorrection() {
+  const payload = {
+    action: 'correct_lab_result',
+    data: {
+      correction_id: document.getElementById('corrId').value,
+      reason: document.getElementById('corrReason').value,
+      corrected_result: document.getElementById('corrResult').value,
+    },
+  };
+  show(await postAction(document.getElementById('corrCase').value, payload, 'lab'));
+}
+
+async function completeFollowup() {
+  const payload = {action: 'complete_followup', data: {outcome: 'no symptoms'}};
+  show(await postAction(document.getElementById('followupContact').value, payload, 'investigator'));
 }
 </script>
 </body>
